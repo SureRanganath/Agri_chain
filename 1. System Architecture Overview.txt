@@ -1,0 +1,545 @@
+1. System Architecture Overview
+┌─────────────────────────────────────────────────────────┐
+│                    Client (Browser)                       │
+│  ┌─────────────────────────────────────────────────────┐│
+│  │            React SPA (Vite + Tailwind)               ││
+│  │  Pages → Components → Hooks → Services → Context     ││
+│  │  Leaflet Map | Recharts | Framer Motion | RHF        ││
+│  └──────────────┬──────────────────────────────────────┘│
+│                 │ HTTP (Axios) + WebSocket (Socket.IO)    │
+└─────────────────┼────────────────────────────────────────┘
+                  │
+┌─────────────────▼────────────────────────────────────────┐
+│              Load Balancer (e.g., HAProxy / NGINX)        │
+└─────────────────┬────────────────────────────────────────┘
+                  │
+┌─────────────────▼────────────────────────────────────────┐
+│           Express.js API Server (Node.js)                 │
+│  ┌──────────┬──────────┬──────────┬───────────────────┐  │
+│  │ Routes   │Controllers│ Services │  Middleware (JWT) │  │
+│  ├──────────┴──────────┴──────────┴───────────────────┤  │
+│  │ Socket.IO (Real-time alerts)    │ Node-Cron (Jobs)    │
+│  └────────────────────┬────────────────────────────────┘  │
+└───────────────────────┼───────────────────────────────────┘
+                        │
+┌───────────────────────▼───────────────────────────────────┐
+│              External Services Layer                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │ OpenWeather  │  │ WeatherAPI   │  │ Geolocation   │  │
+│  │   (REST)     │  │   (REST)     │  │   APIs        │  │
+│  └──────────────┘  └──────────────┘  └───────────────┘  │
+└───────────────────────┼───────────────────────────────────┘
+                        │
+┌───────────────────────▼───────────────────────────────────┐
+│           NeonDB (Serverless PostgreSQL)                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │   Users      │  │   Weather    │  │   Crops       │  │
+│  │              │  │   Cache      │  │Recommendations│  │
+│  ├──────────────┤  ├──────────────┤  ├───────────────┤  │
+│  │  Locations   │  │Alerts/Notifs │  │  Audit Logs   │  │
+│  └──────────────┘  └──────────────┘  └───────────────┘  │
+│                    Prisma ORM                             │
+└───────────────────────────────────────────────────────────┘
+────────────────────────────────────────────────────────────────────────────────
+2. Frontend Architecture (React + Vite)
+Proposed Folder Structure
+werfarm/src/
+├── assets/                  # Static images, icons
+├── components/              # Reusable UI components
+│   ├── ui/                  # Primitive: Button, Card, Modal, Input
+│   ├── weather/             # WeatherCard, ForecastChart, UVIndex
+│   ├── crops/               # CropCard, RecommendationList
+│   ├── alerts/              # AlertBanner, NotificationToast
+│   └── maps/                # LocationPicker, MapView
+├── layouts/
+│   ├── DashboardLayout.jsx
+│   ├── AuthLayout.jsx
+│   └── components/          # Sidebar, Navbar, Footer
+├── pages/
+│   ├── Login.jsx
+│   ├── Register.jsx
+│   ├── Dashboard.jsx
+│   ├── Forecast.jsx
+│   ├── CropRecommendations.jsx
+│   ├── Alerts.jsx
+│   ├── Profile.jsx
+│   └── NotFound.jsx
+├── hooks/
+│   ├── useWeather.js        # React Query wrapper for weather data
+│   ├── useGeolocation.js    # Browser GPS hook
+│   ├── useSocket.js         # Socket.IO connection hook
+│   ├── useAuth.js           # Auth state management
+│   └── useDebounce.js       # For location search
+├── services/
+│   ├── api.js               # Axios instance with interceptors
+│   ├── authService.js
+│   ├── weatherService.js
+│   ├── cropService.js
+│   ├── alertService.js
+│   └── locationService.js
+├── context/
+│   ├── AuthContext.jsx
+│   ├── ThemeContext.jsx
+│   └── AlertContext.jsx
+├── routes/
+│   ├── AppRoutes.jsx
+│   ├── ProtectedRoute.jsx
+│   └── PublicRoute.jsx
+├── utils/
+│   ├── formatters.js        # Date, temperature, units
+│   ├── validators.js
+│   ├── constants.js
+│   └── icons.js
+├── styles/
+│   └── globals.css          # Tailwind + custom themes
+├── App.jsx
+└── main.jsx
+Key Technical Decisions
+┌────────────┬────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────┐
+│ Concern    │ Choice                                 │ Rationale                                                                │
+├────────────┼────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+│ Styling    │ Tailwind CSS with CSS variables for    │ Rapid prototyping, consistent design system, built-in responsive         │
+│            │ dark/light mode                        │ utilities                                                                │
+│ Data       │ React Query (TanStack Query)           │ Automatic caching, background refetching, stale-while-revalidate for     │
+│ Fetching   │                                        │ weather data that changes frequently                                     │
+│ Forms      │ React Hook Form                        │ Performant, minimal re-renders, easy validation integration              │
+│ Charts     │ Recharts                               │ Composable, responsive, works well with React's declarative model        │
+│ Maps       │ Leaflet + React-Leaflet                │ Open-source, no API key required for base maps, lightweight              │
+│ Animations │ Framer Motion                          │ Declarative animations for weather transitions, alert banners, page      │
+│            │                                        │ transitions                                                              │
+│ Realtime   │ Socket.IO client                       │ Bidirectional communication for instant weather alerts                   │
+│ Routing    │ React Router v7                        │ Nested routes, loaders, protected route guards                           │
+│ State      │ React Context (auth, theme) + React    │ No Redux overhead needed; server state managed by React Query            │
+│            │ Query (server state)                   │                                                                          │
+└────────────┴────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────┘
+Data Flow: Frontend to Backend
+User Action → React Hook (useWeather) → Service Layer (Axios) → API Route
+                                                                    ↓
+User sees UI ← React Query cache/hydration ← Controller ← Service ← DB/External API
+                                                                    ↓
+Socket.IO event → AlertContext → AlertBanner/Notification ← User sees alert
+────────────────────────────────────────────────────────────────────────────────
+3. Backend Architecture (Node.js + Express)
+Proposed Folder Structure
+backend/
+├── src/
+│   ├── config/
+│   │   ├── db.js                # Prisma client singleton
+│   │   ├── env.js               # Environment validation (Zod)
+│   │   └── cors.js
+│   ├── middleware/
+│   │   ├── auth.js              # JWT verification
+│   │   ├── validate.js          # Request validation (Zod)
+│   │   ├── errorHandler.js      # Centralized error handler
+│   │   ├── rateLimiter.js       # Rate limiting
+│   │   └── asyncHandler.js
+│   ├── routes/
+│   │   ├── auth.routes.js
+│   │   ├── weather.routes.js
+│   │   ├── forecast.routes.js
+│   │   ├── crop.routes.js
+│   │   ├── alert.routes.js
+│   │   ├── notification.routes.js
+│   │   ├── location.routes.js
+│   │   └── user.routes.js
+│   ├── controllers/
+│   │   ├── auth.controller.js
+│   │   ├── weather.controller.js
+│   │   ├── forecast.controller.js
+│   │   ├── crop.controller.js
+│   │   ├── alert.controller.js
+│   │   ├── notification.controller.js
+│   │   ├── location.controller.js
+│   │   └── user.controller.js
+│   ├── services/
+│   │   ├── auth.service.js
+│   │   ├── weather.service.js    # OpenWeather API wrapper
+│   │   ├── forecast.service.js
+│   │   ├── crop.service.js       # Rule-based engine (ML-ready)
+│   │   ├── alert.service.js
+│   │   ├── notification.service.js
+│   │   ├── location.service.js
+│   │   └── email.service.js      # Future: email/SMS/SMTP
+│   ├── repositories/
+│   │   ├── user.repository.js
+│   │   ├── weather.repository.js
+│   │   ├── crop.repository.js
+│   │   ├── alert.repository.js
+│   │   └── location.repository.js
+│   ├── cron/
+│   │   ├── weatherPolling.js     # Every 15-30 min
+│   │   └── alertChecker.js       # Every 5 min
+│   ├── socket/
+│   │   └── alertSocket.js        # Socket.IO event handlers
+│   ├── utils/
+│   │   ├── cropRules.js          # Rule-based logic
+│   │   ├── weatherParser.js
+│   │   └── helpers.js
+│   └── app.js                    # Express app setup
+├── prisma/
+│   ├── schema.prisma
+│   └── seed.js
+├── tests/
+├── .env.example
+└── package.json
+API Design Highlights
+┌────────┬────────────────────────────────────────┬──────────────────────┐
+│ Method │ Endpoint                               │ Purpose              │
+├────────┼────────────────────────────────────────┼──────────────────────┤
+│ POST   │ /api/auth/register                     │ User registration    │
+│ POST   │ /api/auth/login                        │ JWT login            │
+│ GET    │ /api/weather/current?lat=&lon=         │ Current weather      │
+│ GET    │ /api/weather/forecast?lat=&lon=&days=5 │ 5-day forecast       │
+│ POST   │ /api/locations                         │ Save user location   │
+│ GET    │ /api/crops/recommend?locationId=       │ Crop recommendations │
+│ GET    │ /api/alerts?userId=                    │ User's alerts        │
+│ PATCH  │ /api/users/preferences                 │ Notification prefs   │
+└────────┴────────────────────────────────────────┴──────────────────────┘
+WebSocket Events (Socket.IO)
+┌────────────────┬─────────────────┬───────────────────────────────────────┐
+│ Event          │ Direction       │ Description                           │
+├────────────────┼─────────────────┼───────────────────────────────────────┤
+│ alert:new      │ Server → Client │ New weather alert for user's location │
+│ weather:update │ Server → Client │ Live weather data refresh             │
+│ alert:ack      │ Client → Server │ User acknowledged an alert            │
+└────────────────┴─────────────────┴───────────────────────────────────────┘
+────────────────────────────────────────────────────────────────────────────────
+4. Database Design (NeonDB + Prisma ORM)
+Schema (prisma/schema.prisma)
+// prisma
+generator client {
+  provider = "prisma-client-js"
+}
+ 
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+ 
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  name          String?
+  phone         String?
+  avatarUrl     String?
+  role          String   @default("user") // user | admin
+  preferences   UserPreference?
+  locations     Location[]
+  alerts        Alert[]
+  notifications Notification[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+ 
+  @@index([email])
+}
+ 
+model UserPreference {
+  id                 String  @id @default(uuid())
+  userId             String  @unique
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme              String  @default("system") // light | dark | system
+  tempUnit           String  @default("celsius") // celsius | fahrenheit
+  emailNotifications Boolean @default(true)
+  browserNotifications Boolean @default(true)
+  alertThresholds    Json?   // e.g. {"temp_high": 40, "wind_speed": 60}
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+ 
+model Location {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label       String?  // "Home", "Farm A", etc.
+  latitude    Float
+  longitude   Float
+  village     String?
+  city        String?
+  district    String?
+  state       String?
+  pinCode     String?
+  country     String   @default("IN")
+  isPrimary   Boolean  @default(false)
+  weatherCaches WeatherCache[]
+  cropRecommendations CropRecommendation[]
+  alerts      Alert[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+ 
+  @@index([userId])
+  @@index([latitude, longitude])
+  @@index([city, state])
+}
+ 
+model WeatherCache {
+  id          String   @id @default(uuid())
+  locationId  String
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  data        Json     // Full weather payload
+  temp        Float
+  humidity    Float
+  windSpeed   Float
+  pressure    Float
+  uvIndex     Float?
+  visibility  Float?
+  airQuality  Json?
+  sunrise     DateTime?
+  sunset      DateTime?
+  fetchedAt   DateTime @default(now())
+  expiresAt   DateTime // TTL-based expiry
+ 
+  @@index([locationId, fetchedAt])
+  @@index([expiresAt])
+}
+ 
+model Forecast {
+  id          String   @id @default(uuid())
+  locationId  String
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  date        DateTime
+  tempHigh    Float
+  tempLow     Float
+  humidity    Float
+  windSpeed   Float
+  rainProb    Float
+  weatherCode Int
+  description String
+  iconCode    String
+  summary     String?
+  data        Json     // Raw forecast data
+  fetchedAt   DateTime @default(now())
+ 
+  @@unique([locationId, date])
+  @@index([locationId, date])
+}
+ 
+model CropRecommendation {
+  id              String   @id @default(uuid())
+  locationId      String
+  location        Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  cropName        String
+  confidenceScore Float
+  reason          String
+  requiredRainfall Float?
+  requiredTempMin  Float?
+  requiredTempMax  Float?
+  waterRequirement String?
+  growingDuration  String?
+  expectedYield   String?
+  suitableSeason  String
+  imageUrl        String?
+  metadata        Json?    // Future ML model output
+  createdAt       DateTime @default(now())
+ 
+  @@index([locationId, createdAt])
+  @@index([cropName])
+}
+ 
+model Alert {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locationId  String
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  type        String   // HEAVY_RAIN, STORM, CYCLONE, HEAT_WAVE, COLD_WAVE, STRONG_WIND, FLOOD
+  severity    String   // INFO, WARNING, CRITICAL
+  title       String
+  message     String
+  data        Json?
+  isRead      Boolean  @default(false)
+  isAcknowledged Boolean @default(false)
+  createdAt   DateTime @default(now())
+ 
+  @@index([userId, createdAt])
+  @@index([type, severity])
+  @@index([locationId])
+}
+ 
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel   String   // in_app, browser, email, sms
+  title     String
+  message   String
+  sentAt    DateTime @default(now())
+  delivered Boolean @default(false)
+  readAt    DateTime?
+ 
+  @@index([userId, sentAt])
+}
+ 
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+ 
+  @@index([userId, createdAt])
+  @@index([action, entity])
+}
+Indexing Strategy
+┌──────────────┬──────────────────────────────┬──────────────────────────────────┐
+│ Table        │ Index                        │ Purpose                          │
+├──────────────┼──────────────────────────────┼──────────────────────────────────┤
+│ User         │ email (unique)               │ Fast login lookups               │
+│ Location     │ (latitude, longitude)        │ Spatial queries, weather lookups │
+│ WeatherCache │ (locationId, fetchedAt DESC) │ Latest weather per location      │
+│ Forecast     │ (locationId, date)           │ 5-day forecast retrieval         │
+│ Alert        │ (userId, createdAt DESC)     │ User alert feed                  │
+│ Alert        │ (type, severity)             │ Aggregate monitoring             │
+│ AuditLog     │ (userId, createdAt DESC)     │ Audit trail                      │
+└──────────────┴──────────────────────────────┴──────────────────────────────────┘
+Why Prisma + NeonDB?
+- NeonDB offers serverless PostgreSQL with automatic scaling, branching for dev/staging, and connection pooling — ideal for a SaaS with variable load.
+- Prisma provides type-safe queries, auto-generated migrations, and a declarative schema that serves as a single source of truth.
+────────────────────────────────────────────────────────────────────────────────
+5. Real-Time Weather Alert Pipeline
+┌──────────────────────────────────────────────────────────────────┐
+│                      Cron Jobs (Node-Cron)                        │
+│                                                                   │
+│  ┌─────────────────────┐       ┌──────────────────────────────┐  │
+│  │ weatherPolling.js   │       │   alertChecker.js            │  │
+│  │ Every 15-30 min     │       │   Every 5 min                │  │
+│  │                     │       │                              │  │
+│  │ 1. Fetch active     │       │ 1. Check weather thresholds  │  │
+│  │    locations        │       │ 2. Compare with user prefs   │  │
+│  │ 2. Call Weather API │       │ 3. Create Alert in DB        │  │
+│  │ 3. Update Weather   │       │ 4. Emit Socket.IO event      │  │
+│  │    Cache            │       │ 5. Queue notification         │  │
+│  └─────────┬───────────┘       └──────────┬───────────────────┘  │
+│            │                              │                      │
+└────────────┼──────────────────────────────┘──────────────────────┘
+             │                              │
+             ▼                              ▼
+      ┌──────────────┐            ┌──────────────────┐
+      │  DB Update    │            │  Socket.IO Server │
+      └──────────────┘            └────────┬─────────┘
+                                           │
+                                    ┌──────▼──────┐
+                                    │   Redis      │
+                                    │ (Pub/Sub)    │
+                                    └──────┬──────┘
+                                           │
+                              ┌────────────┴────────────┐
+                              │                         │
+                         ┌────▼────┐             ┌─────▼─────┐
+                         │  User A  │             │  User B   │
+                         │ (WebSocket)│           │ (WebSocket)│
+                         └─────────┘             └───────────┘
+For horizontal scaling: Use Redis Pub/Sub as the Socket.IO adapter so all server instances receive and broadcast events.
+────────────────────────────────────────────────────────────────────────────────
+6. Crop Recommendation Engine
+The crop recommendation system follows a modular strategy pattern:
+┌────────────────────────────────────┐
+│      CropRecommendationService      │
+│                                     │
+│  ┌──────────────────────────────┐  │
+│  │       Engine Strategy         │  │
+│  │  ┌─────────┐  ┌───────────┐  │  │
+│  │  │RuleBased│  │  MLModel  │  │  │
+│  │  │ (v1)    │  │  (v2+)    │  │  │
+│  │  └────┬────┘  └─────┬─────┘  │  │
+│  └───────┼─────────────┼────────┘  │
+│          │             │           │
+└──────────┼─────────────┼───────────┘
+           │             │
+           ▼             ▼
+   ┌──────────────┐  ┌──────────────────┐
+   │  cropRules   │  │ TensorFlow.js /  │
+   │  .js         │  │ External ML API  │
+   └──────────────┘  └──────────────────┘
+Input: Location, weather context, season, soil data (future)
+Output: Array of  { cropName, confidenceScore, reason, requirements } 
+Rule-Based Algorithm (v1)
+// javascript
+// Simplified logic
+function recommendCrops(weather, location) {
+  const season = getSeason(location, weather.date);
+  const crops = CROP_DATABASE.filter(crop => {
+    return (
+      weather.temp >= crop.minTemp &&
+      weather.temp <= crop.maxTemp &&
+      weather.humidity >= crop.minHumidity &&
+      season === crop.suitableSeason
+    );
+  });
+  return crops.sort((a, b) => b.confidenceScore - a.confidenceScore);
+}
+The interface is designed so that swapping in a machine learning model (trained on historical yield data) requires changing only the strategy implementation — no other code changes.
+────────────────────────────────────────────────────────────────────────────────
+7. Scalability Considerations
+┌─────────────┬──────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────┐
+│ Layer       │ Strategy                         │ Implementation                                                                │
+├─────────────┼──────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────┤
+│ Database    │ Connection pooling + read        │ NeonDB's built-in pooled connections; Prisma's connection management          │
+│             │ replicas                         │                                                                               │
+│ API         │ Horizontal scaling               │ Stateless JWT auth; deploy behind load balancer                               │
+│ Caching     │ Multi-tier                       │ In-memory: React Query (client); Redis: Weather cache, session store, rate    │
+│             │                                  │ limiter                                                                       │
+│ WebSocket   │ Redis adapter                    │ @socket.io/redis-adapter for multi-instance event broadcasting                │
+│ Weather API │ Rate limiting + caching          │ Cache external API responses in NeonDB with TTL; fallback to cached data      │
+│ Assets      │ CDN                              │ Serve static assets via Vite build + CDN                                      │
+│ Cron Jobs   │ Distributed locking              │ Use Redis-based locks to prevent duplicate cron execution across instances    │
+└─────────────┴──────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────┘
+Performance Budgets
+┌───────────────────────────────┬─────────┐
+│ Metric                        │ Target  │
+├───────────────────────────────┼─────────┤
+│ First Contentful Paint        │ < 1.5s  │
+│ Time to Interactive           │ < 2.5s  │
+│ API response (cached)         │ < 100ms │
+│ API response (external fetch) │ < 2s    │
+│ WebSocket alert delivery      │ < 1s    │
+└───────────────────────────────┴─────────┘
+────────────────────────────────────────────────────────────────────────────────
+8. User Experience Improvements
+UX Principles
+1. Progressive Disclosure: Show current weather first, then forecast, then recommendations — don't overwhelm the user.
+2. Skeleton Loading: Every data-dependent component should show skeleton placeholders during loading.
+3. Offline Resilience: Cache the last-known weather data in  localStorage  so the dashboard is never blank.
+4. Error Recovery: React Query's retry + error boundary components at each page level.
+UI/UX Features
+- Glassmorphism cards for weather metrics with subtle parallax on scroll
+- Dark/Light mode with system preference detection and manual toggle
+- Micro-animations for weather icon transitions (Framer Motion)
+- Rain probability charts using Recharts'  AreaChart  with gradient fills
+- Map integration: Leaflet map showing user's saved locations with weather overlays
+- Alert toast system: Stacked toasts with severity coloring (green=info, yellow=warning, red=critical)
+Accessibility (a11y)
+- All interactive elements accessible via keyboard
+- ARIA labels on weather icons and chart data
+- Color contrast ratios meeting WCAG AA standards
+-  prefers-reduced-motion  respected for animations
+────────────────────────────────────────────────────────────────────────────────
+9. Implementation Roadmap
+┌─────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────┬─────────────┐
+│ Phase               │ Tasks                                                                                      │ Duration    │
+│                     │                                                                                            │ Estimate    │
+├─────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┼─────────────┤
+│ Phase 1: Foundation │ Scaffold Vite + React + Tailwind; set up Express + Prisma + NeonDB; implement auth (JWT +  │ Week 1      │
+│                     │ bcrypt); create project folder structure                                                   │             │
+│ Phase 2: Core       │ Integrate OpenWeather API; build current weather display; implement 5-day forecast with    │ Week 2      │
+│ Weather             │ Recharts; add location picker (GPS + search)                                               │             │
+│ Phase 3: Crop       │ Build rule-based recommendation system; create crop database; implement crop results UI    │ Week 3      │
+│ Engine              │ with confidence scores                                                                     │             │
+│ Phase 4: Alerts &   │ Set up Socket.IO; implement cron-based weather monitoring; build alert creation and        │ Week 4      │
+│ Realtime            │ notification system; add browser notifications                                             │             │
+│ Phase 5: Polish     │ Dark/light mode; responsive design audit; animations; skeleton loading; accessibility      │ Week 5      │
+│                     │ review; performance optimization                                                           │             │
+│ Phase 6: Scale      │ Add Redis caching; load testing; CDN deployment; monitoring (Sentry + Datadog); Dockerize  │ Week 6      │
+└─────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────┴─────────────┘
+────────────────────────────────────────────────────────────────────────────────
+10. Current Project Status
+The existing  werfarm/  directory contains a Vite + React scaffold (React 19, Vite 8). No backend, database, or application logic has been implemented yet. The project is ready for Phase 1 development to begin.
+<render_ui_widgets>
+<render_ui>
+<render_ui>
+<render_ui>
+</render_ui>
+Would you like me to proceed with implementing any specific phase of this architecture?
